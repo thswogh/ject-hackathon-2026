@@ -1,8 +1,11 @@
+import { after } from "next/server";
+import { maybeDiscover } from "@/lib/discover";
 import { buildFallback } from "@/lib/fallback";
 import { judge } from "@/lib/judge";
 import { allowAiCall, readSession, sessionCookie } from "@/lib/ratelimit";
-import { JudgeRequestSchema } from "@/lib/schema";
-import { clampAge, isSportChoice } from "@/lib/sports";
+import { JudgeRequestSchema, type JudgeResult } from "@/lib/schema";
+import { SPORT_IDS, clampAge, isSportChoice } from "@/lib/sports";
+import { getConfirmed } from "@/lib/store";
 
 export const maxDuration = 60;
 
@@ -29,17 +32,28 @@ export async function POST(request: Request) {
     return Response.json(body, { headers });
   };
 
+  // 실시간 발굴로 확인된 기록 (docs/spec.md 7.9). 저장소가 실패하면 빈 값이라 판독은 그대로 진행된다.
+  const extra = await getConfirmed(sport === "any" ? SPORT_IDS : [sport]);
+
   if (!allowAiCall(session.id)) {
     console.log(`[judge] 호출 제한 ${sport} ${age}세 → fallback`);
-    return json(buildFallback(sport, age, exclude, visit));
+    return json(buildFallback(sport, age, exclude, visit, extra));
   }
 
+  let result: JudgeResult;
   try {
-    const { result, log } = await judge({ sport, age, exclude, visit });
-    console.log(`[judge] ${sport} ${age}세 방문${visit} → ${result.source} | ${log.join(" | ")}`);
-    return json(result);
+    const judged = await judge({ sport, age, exclude, visit, extra });
+    result = judged.result;
+    console.log(`[judge] ${sport} ${age}세 방문${visit} → ${result.source} | ${judged.log.join(" | ")}`);
   } catch (e) {
     console.error("[judge] 예외", e);
-    return json(buildFallback(sport, age, exclude, visit));
+    result = buildFallback(sport, age, exclude, visit, extra);
   }
+
+  // 응답을 보낸 뒤 그 종목·나이의 새 기록을 찾는다. 사용자는 기다리지 않는다.
+  if ((process.env.JUDGE_SOURCE || "hybrid") === "hybrid") {
+    const target = { sport: result.reveal.sport, age };
+    after(async () => console.log(`[discover] ${target.sport} ${age}세 → ${await maybeDiscover(target)}`));
+  }
+  return json(result);
 }

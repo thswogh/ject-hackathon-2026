@@ -26,7 +26,7 @@ npm run lint
 - Next.js 16 (App Router) + TypeScript + Tailwind CSS 4, 배포는 Vercel
 - AI: OpenAI 공식 SDK `openai`, Responses API + 웹 검색 도구, `zod` 스키마로 structured outputs
 - 카드 이미지 `html-to-image`, 아이콘 `@remixicon/react`
-- DB, 로그인 없음
+- 로그인, 사용자 DB 없음. 실시간 발굴 기록만 Upstash Redis에 쌓는다 (`lib/store.ts`, `docs/spec.md` 7.9)
 
 ## 규칙
 
