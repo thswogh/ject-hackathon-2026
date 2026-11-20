@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@remixicon/react": "^4.9.0",
+    "@upstash/redis": "^1.41.0",
     "html-to-image": "^1.11.13",
     "next": "16.4.6",
     "openai": "^7.57.0",

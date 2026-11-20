@@ -5,7 +5,7 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import type { Response } from "openai/resources/responses/responses";
-import { buildFallback } from "./fallback";
+import { buildFallback, type ExtraPeaks } from "./fallback";
 import { judgeHybrid } from "./hybrid";
 import { SYSTEM_PROMPT, buildUserMessage } from "./prompt";
 import { ModelOutputSchema, type JudgeResult, type ModelOutput, type Source } from "./schema";
@@ -28,7 +28,7 @@ function getClient(): OpenAI {
 const PREFERRED_HOSTS = ["wikipedia.org", "namu.wiki", "kbo.or.kr", "mlb.com", "nba.com", "premierleague.com", "lolesports.com"];
 
 /** 출처는 모델이 쓴 URL이 아니라, 실제 웹 검색 인용과 검색 결과에서 뽑는다. */
-export function extractSources(res: Response): Source[] {
+export function extractSources(res: Response, limit = 3): Source[] {
   const found = new Map<string, Source>();
   for (const item of res.output) {
     if (item.type === "message") {
@@ -47,7 +47,7 @@ export function extractSources(res: Response): Source[] {
   }
   const list = [...found.values()].filter((s) => s.url.startsWith("https://"));
   const score = (s: Source) => (PREFERRED_HOSTS.some((h) => hostOf(s.url).endsWith(h)) ? 0 : 1);
-  return list.sort((a, b) => score(a) - score(b)).slice(0, 3);
+  return list.sort((a, b) => score(a) - score(b)).slice(0, limit);
 }
 
 function hostOf(url: string): string {
@@ -84,7 +84,14 @@ async function callModel(
   return { out, sources: extractSources(res) };
 }
 
-export async function judge(input: { sport: SportChoice; age: number; exclude: string[]; visit?: number }): Promise<{
+export async function judge(input: {
+  sport: SportChoice;
+  age: number;
+  exclude: string[];
+  visit?: number;
+  /** 실시간 발굴로 확인된 기록 (하이브리드·비상용 결과에서 준비된 기록과 함께 고른다) */
+  extra?: ExtraPeaks;
+}): Promise<{
   result: JudgeResult;
   log: string[];
 }> {
@@ -94,11 +101,11 @@ export async function judge(input: { sport: SportChoice; age: number; exclude: s
   if (sourceMode === "hybrid") return judgeHybrid(input);
   if (sourceMode === "curated") {
     log.push("JUDGE_SOURCE=curated: 준비된 기록 사용");
-    return { result: buildFallback(input.sport, input.age, input.exclude, input.visit), log };
+    return { result: buildFallback(input.sport, input.age, input.exclude, input.visit, input.extra), log };
   }
   if (!process.env.OPENAI_API_KEY) {
     log.push("OPENAI_API_KEY 없음");
-    return { result: buildFallback(input.sport, input.age, input.exclude, input.visit), log };
+    return { result: buildFallback(input.sport, input.age, input.exclude, input.visit, input.extra), log };
   }
 
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -121,5 +128,5 @@ export async function judge(input: { sport: SportChoice; age: number; exclude: s
     }
   }
   log.push(`비상용 결과 사용 (${Date.now() - started}ms)`);
-  return { result: buildFallback(input.sport, input.age, input.exclude, input.visit), log };
+  return { result: buildFallback(input.sport, input.age, input.exclude, input.visit, input.extra), log };
 }

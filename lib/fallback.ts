@@ -5,10 +5,10 @@
 import { buildHeadline } from "./headline";
 import { josa, shortName } from "./josa";
 import { ROAST_POOL } from "./copy";
-import type { JudgeResult } from "./schema";
+import type { JudgeResult, Source } from "./schema";
 import { SPORT_IDS, type SportChoice, type SportId } from "./sports";
 
-type Peak = {
+export type Peak = {
   athlete: string;
   birthYear: number;
   eventYear: number;
@@ -18,7 +18,12 @@ type Peak = {
   /** 1: 종목을 잘 몰라도 아는 슈퍼스타 (첫 판독에 우선) / 2: 팬이라면 아는 스타 (재방문할수록 섞임) */
   fame: 1 | 2;
   verified: boolean;
+  /** 실시간 발굴(lib/discover.ts)로 들어온 기록만 출처가 있다 */
+  sources?: Source[];
 };
+
+/** 실시간 발굴로 확인된 기록 (lib/store.ts getConfirmed). 종목별로 준비된 기록 뒤에 섞는다. */
+export type ExtraPeaks = Partial<Record<SportId, Peak[]>>;
 
 type Comfort = { athlete: string; lowAge: number; lowText: string; laterAge: number; laterText: string };
 
@@ -168,10 +173,10 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 /** 배포 전 팀 검증 규칙: 모든 항목이 검증되면 verified만 쓴다. 지금은 전체를 쓴다. */
-function usablePeaks(sport: SportId): Peak[] {
+function usablePeaks(sport: SportId, extra: ExtraPeaks = {}): Peak[] {
   const all = PEAKS[sport];
   const verified = all.filter((p) => p.verified);
-  return verified.length >= 3 ? verified : all;
+  return [...(verified.length >= 3 ? verified : all), ...(extra[sport] ?? [])];
 }
 
 /**
@@ -184,9 +189,10 @@ export function pickPeak(
   age: number,
   exclude: string[] = [],
   visit = 0,
+  extra: ExtraPeaks = {},
 ): { sport: SportId; p: Peak } {
   const pool: { sport: SportId; p: Peak }[] = (choice === "any" ? [...SPORT_IDS] : [choice]).flatMap((s) =>
-    usablePeaks(s).map((p) => ({ sport: s, p })),
+    usablePeaks(s, extra).map((p) => ({ sport: s, p })),
   );
   const excluded = new Set(exclude.map(shortName));
   const filtered = pool.filter((x) => !excluded.has(shortName(x.p.athlete)));
@@ -208,8 +214,14 @@ export function pickPeak(
   return near[near.length - 1];
 }
 
-export function buildFallback(choice: SportChoice, age: number, exclude: string[] = [], visit = 0): JudgeResult {
-  const { sport, p } = pickPeak(choice, age, exclude, visit);
+export function buildFallback(
+  choice: SportChoice,
+  age: number,
+  exclude: string[] = [],
+  visit = 0,
+  extra: ExtraPeaks = {},
+): JudgeResult {
+  const { sport, p } = pickPeak(choice, age, exclude, visit, extra);
   const delta = p.eventAge - age;
 
   const comfortList = [...COMFORTS[sport]].sort((a, b) => Math.abs(a.lowAge - age) - Math.abs(b.lowAge - age));
@@ -245,7 +257,8 @@ export function buildFallback(choice: SportChoice, age: number, exclude: string[
     },
     workout: WORKOUTS[sport],
     confidence: "high",
-    sources: [],
-    source: "fallback",
+    // 발굴 기록은 AI가 웹에서 찾은 것이라 출처와 AI 안내 문구를 붙인다
+    sources: p.sources ?? [],
+    source: p.sources?.length ? "ai" : "fallback",
   };
 }

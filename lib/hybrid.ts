@@ -7,7 +7,7 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
-import { buildFallback } from "./fallback";
+import { buildFallback, type ExtraPeaks } from "./fallback";
 import type { JudgeResult } from "./schema";
 import type { SportChoice } from "./sports";
 
@@ -41,12 +41,18 @@ const COPY_PROMPT = `당신은 웹 서비스 "GAP"(선수와 나 사이의 차�
 
 let client: OpenAI | null = null;
 
-export async function judgeHybrid(input: { sport: SportChoice; age: number; exclude: string[]; visit?: number }): Promise<{
+export async function judgeHybrid(input: {
+  sport: SportChoice;
+  age: number;
+  exclude: string[];
+  visit?: number;
+  extra?: ExtraPeaks;
+}): Promise<{
   result: JudgeResult;
   log: string[];
 }> {
   const visit = input.visit ?? 0;
-  const base = buildFallback(input.sport, input.age, input.exclude, visit);
+  const base = buildFallback(input.sport, input.age, input.exclude, visit, input.extra);
   const log: string[] = [];
   if (!process.env.OPENAI_API_KEY) return { result: base, log: ["키 없음: 템플릿 문구"] };
 
